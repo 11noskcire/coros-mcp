@@ -131,3 +131,38 @@ async def test_failed_auto_login_logs_reason(env, monkeypatch, caplog):
     assert "CorosAPIError" in caplog.text
     assert "result=1030" in caplog.text
     assert "pw" not in caplog.text.replace("password", "")  # the password value is never logged
+
+
+async def test_login_without_token_reports_response_shape(monkeypatch):
+    """result 0000 but no accessToken: raise with field names, never values."""
+    body = {"result": "0000", "message": "OK", "data": {"regionId": 3, "email": "secret@example.com"}}
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return body
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(coros_api.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(coros_api, "_save_auth", lambda _a: pytest.fail("nothing to save"))
+    with pytest.raises(coros_api.CorosAPIError) as exc_info:
+        await coros_api.login("a@b.c", "pw", "us")
+    msg = str(exc_info.value)
+    assert exc_info.value.code == "no_token"
+    assert "['email', 'regionId']" in msg
+    assert "regionId=3" in msg
+    assert "secret@example.com" not in msg

@@ -283,7 +283,17 @@ async def login(email: str, password: str, region: str = "eu", *, skip_mobile: b
 
         _check_response(body, "login")
 
-        data = body.get("data", {})
+        data = body.get("data") or {}
+
+    if not data.get("accessToken") or not data.get("userId"):
+        # Success code but no token: report the response shape. Field names only —
+        # values may be personal — plus regionId, which hints at a region mismatch.
+        region_hint = f", regionId={data['regionId']!r}" if "regionId" in data else ""
+        raise CorosAPIError(
+            "no_token",
+            f"Coros login returned no accessToken/userId (message={body.get('message')!r}, "
+            f"data fields={sorted(data)}{region_hint})",
+        )
 
     # Mobile API token (apieu.coros.com) — needed for sleep data
     # Uses AES-encrypted credentials (key reverse-engineered from libencrypt-lib.so)
