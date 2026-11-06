@@ -74,6 +74,8 @@ All Coros API responses return `result: "0000"` on success. Any other value indi
 - Every login invalidates the previous token: `try_auto_login(stale)` serializes on `_login_lock` and reuses a token another request just minted.
 - `COROS_SKIP_MOBILE=1`: never mobile-login or replay the mobile payload (it signs the user out of the phone app); sleep tools return `MobileDisabledError`'s message.
 - `serve-http` (`server.main_http`): `coros_mcp/http_auth.py` checks `MCP_AUTH_TOKEN` as Bearer header or `/<token>/…` path prefix (moved into ASGI `root_path`); `/healthz` and `/health` are public. `COROS_CACHE_DB` overrides the SQLite path.
+- Branches: `main` mirrors upstream untouched; `cloud` = `main` + these changes and is the only deploy branch (merge `main` into it, never rebase).
+- CD: `.github/workflows/deploy.yml` tests pushes/PRs to `cloud` and deploys to Cloud Run on `deploy-v*` tags on `cloud` only (never `v*` — this fork carries upstream's `v*` release tags). It ships code only (`gcloud run deploy --source .`); secrets/env/scaling stay as set on the service.
 
 ### Region Handling
 Regions (`eu`, `us`) map to different base URLs for both APIs. EU tokens only work on EU endpoints — mixing regions causes auth failures. Region is not geography: login can succeed against the wrong region and still 1019 on every call after it (confirmed live — a German account needed `us`), so rule the region out first when auth breaks with a valid-looking token.

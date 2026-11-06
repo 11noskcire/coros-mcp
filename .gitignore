@@ -24,3 +24,5 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+# google-github-actions/auth credentials
+gha-creds-*.json

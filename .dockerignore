@@ -2,6 +2,7 @@
 .env
 .env.*
 *.enc
+gha-creds-*.json
 .git/
 .github/
 .claude/

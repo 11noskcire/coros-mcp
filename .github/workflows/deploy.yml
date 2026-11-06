@@ -1,0 +1,63 @@
+name: Test and deploy
+
+# Branch model: main mirrors upstream untouched; cloud = main + the Cloud Run
+# changes, and is the only branch that deploys. Tests run on pushes and PRs to
+# cloud; deploy-v* tags on cloud deploy (not v*: this fork carries upstream's
+# v* release tags, which must never ship). Setup: docs/cloud-run.md.
+on:
+  push:
+    branches: [cloud]
+    tags: ["deploy-v*"]
+  pull_request:
+    branches: [cloud]
+
+permissions:
+  contents: read
+
+env:
+  SERVICE: coros-mcp
+  REGION: asia-southeast2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy . --exclude tests/
+      - run: python -m pytest
+
+  deploy:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/deploy-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Require the tagged commit to be on cloud
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/cloud
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      # Code only: builds the Dockerfile. Secrets, the service account, scaling and
+      # env vars stay as set on the service: passing --set-secrets here would undo
+      # every rotation.
+      - run: >-
+          gcloud run deploy "$SERVICE"
+          --source .
+          --region "$REGION"
+          --quiet

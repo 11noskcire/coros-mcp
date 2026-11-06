@@ -1,0 +1,27 @@
+# Source uploaded by `gcloud run deploy --source .` (the Dockerfile build
+# then applies .dockerignore). Keep secrets and CI credentials out.
+.gcloudignore
+.git/
+.gitignore
+.github/
+.claude/
+.idea/
+.venv/
+.env*
+*.enc
+gha-creds-*.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.playwright-mcp/
+har/
+tests/
+docs/
+dist/
+build/
+*.egg-info/
+.coverage
+coverage.xml
+htmlcov/
