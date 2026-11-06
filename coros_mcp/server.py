@@ -18,8 +18,8 @@ transparently whenever the stored token is expired or rejected.
 """
 
 import json
+import logging
 import os
-import sys
 import time
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
@@ -466,7 +466,12 @@ async def check_coros_auth(verify_with_server: bool = False) -> dict:
         return {
             "authenticated": False,
             "mobile_authenticated": False,
-            "message": "No valid token found. Call authenticate_coros first.",
+            "message": (
+                "No valid token stored yet. The next data tool call logs in automatically "
+                "from COROS_EMAIL / COROS_PASSWORD."
+                if coros_api.get_env_credentials() is not None
+                else "No valid token found. Call authenticate_coros first."
+            ),
         }
 
     age_ms = int(time.time() * 1000) - auth.timestamp
@@ -1729,9 +1734,19 @@ def main_http():
     token = os.environ.get("MCP_AUTH_TOKEN", "").strip()
     if not token:
         raise SystemExit("MCP_AUTH_TOKEN must be set for serve-http — refusing to start an unauthenticated server.")
+    # Cloud Run collects stderr; without a handler only WARNING+ would surface.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    log = logging.getLogger(__name__)
     if len(token) < 32:
-        print("Warning: MCP_AUTH_TOKEN is shorter than 32 characters; use e.g. `openssl rand -hex 32`.",
-              file=sys.stderr)
+        log.warning("MCP_AUTH_TOKEN is shorter than 32 characters; use e.g. `openssl rand -hex 32`.")
+    # Presence only, never values: makes a missing secret mount obvious in the logs.
+    log.info(
+        "serve-http config: token_backend=%s credentials=%s region=%s skip_mobile=%s",
+        os.environ.get("COROS_TOKEN_BACKEND") or "local",
+        "set" if coros_api.get_env_credentials() else "MISSING (COROS_EMAIL/COROS_PASSWORD)",
+        os.environ.get("COROS_REGION", "eu"),
+        coros_api.mobile_disabled(),
+    )
     mcp.run(
         transport="http",
         host="0.0.0.0",  # container entrypoint: listen on all interfaces

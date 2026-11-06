@@ -68,11 +68,17 @@ as the Compute Engine default service account, which needs the Cloud Run
 Builder role. The grant can take a couple of minutes to take effect, and it's
 harmless if the account already has it.
 
+`--condition=None` on the project-level grants in this guide skips a prompt.
+gcloud asks for a condition whenever the project policy already has a
+conditional binding, for example the temporary one the console's Developer
+Connect setup adds.
+
 ```bash
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role=roles/run.builder
+  --role=roles/run.builder \
+  --condition=None
 ```
 
 ## 3. Firestore (Native mode)
@@ -117,7 +123,8 @@ gcloud iam service-accounts create "$SA_NAME" \
 
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$SA" \
-  --role="roles/datastore.user"
+  --role="roles/datastore.user" \
+  --condition=None
 
 for S in COROS_EMAIL COROS_PASSWORD MCP_AUTH_TOKEN; do
   gcloud secrets add-iam-policy-binding "$S" \
@@ -328,7 +335,8 @@ gcloud iam service-accounts create coros-mcp-deployer --display-name="coros-mcp 
 for ROLE in roles/run.sourceDeveloper roles/serviceusage.serviceUsageConsumer; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$DEPLOYER" \
-    --role="$ROLE"
+    --role="$ROLE" \
+    --condition=None
 done
 
 # The service's account, and the Compute Engine default account that runs the build.

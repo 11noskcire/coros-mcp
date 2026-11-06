@@ -118,3 +118,16 @@ async def test_default_mode_still_retries_any_error(env, monkeypatch):
 
     assert await server_mod._run_with_auth(fn, auth) == "ok"
     assert len(calls) == 1
+
+
+async def test_failed_auto_login_logs_reason(env, monkeypatch, caplog):
+    """A failed login must leave its cause in the logs, not only "Not authenticated"."""
+    async def failing_login(*_a, **_k):
+        raise coros_api.CorosAPIError("1030", "Coros login error: wrong password (result=1030)")
+
+    monkeypatch.setattr(coros_api, "login", failing_login)
+    with caplog.at_level("WARNING", logger="coros_mcp.coros_api"):
+        assert await coros_api.try_auto_login() is None
+    assert "CorosAPIError" in caplog.text
+    assert "result=1030" in caplog.text
+    assert "pw" not in caplog.text.replace("password", "")  # the password value is never logged

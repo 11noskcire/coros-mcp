@@ -428,8 +428,10 @@ async def try_auto_login(stale: StoredAuth | None = None) -> StoredAuth | None:
             return current
         try:
             return await login(email, password, region)  # skip_mobile=True by default
-        except Exception:
-            logger.debug("Auto-login from env credentials failed", exc_info=True)
+        except Exception as exc:
+            # Otherwise every tool just says "Not authenticated" with no cause in
+            # the logs. Neither COROS nor Firestore errors contain the credentials.
+            logger.warning("Auto-login from env credentials failed: %s: %s", type(exc).__name__, exc)
             return None
 
 
