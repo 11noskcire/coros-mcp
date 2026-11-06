@@ -1,0 +1,24 @@
+# Keep secrets and local state out of the build context.
+.env
+.env.*
+*.enc
+.git/
+.github/
+.claude/
+.venv/
+.idea/
+.playwright-mcp/
+har/
+tests/
+docs/
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/

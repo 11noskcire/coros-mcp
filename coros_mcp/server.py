@@ -19,6 +19,7 @@ transparently whenever the stored token is expired or rejected.
 
 import json
 import os
+import sys
 import time
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
@@ -27,6 +28,9 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pydantic import Field
+from starlette.middleware import Middleware
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
 
 from coros_mcp import coros_api
 from coros_mcp.cache.store import cache_status, init_db
@@ -40,6 +44,7 @@ from coros_mcp.cache.sync import (
 )
 from coros_mcp.cache.utils import LOCAL_TZ, fmt_local_time
 from coros_mcp.coros_api import TOKEN_TTL_MS
+from coros_mcp.http_auth import PUBLIC_PATHS, SharedSecretMiddleware
 
 load_dotenv()
 init_db()
@@ -109,6 +114,9 @@ _Day = Annotated[str, Field(pattern=r"^\d{8}$")]
 _DayOrEmpty = Annotated[str, Field(pattern=r"^(\d{8})?$")]
 _Weeks = Annotated[int, Field(ge=1, le=52)]
 
+# Stateless (Firestore-backed) deployments re-login only on auth errors; see _run_with_auth.
+_LOGIN_ONLY_ON_AUTH_ERROR = os.environ.get("COROS_TOKEN_BACKEND", "").strip().lower() == "firestore"
+
 _NOT_AUTHENTICATED = "Not authenticated. Set COROS_EMAIL and COROS_PASSWORD in .env or call authenticate_coros."  # noqa: E501
 
 
@@ -142,13 +150,20 @@ async def _run_with_auth(fn, auth, *args, retry_all: bool = True, **kwargs):
     workout): only auth-related failures are retried. A blind retry could
     apply the write twice on the server when the first request succeeded
     but its response was lost.
+
+    With COROS_TOKEN_BACKEND=firestore (stateless deployment) every call
+    behaves like retry_all=False: each login invalidates the previous token,
+    so only a rejected token — not a network blip — justifies a re-login.
     """
     try:
         return await fn(auth, *args, **kwargs)
     except Exception as exc:
-        if not retry_all and not _is_auth_error(exc):
+        if isinstance(exc, coros_api.MobileDisabledError):
             raise
-        new_auth = await coros_api.try_auto_login()
+        auth_errors_only = not retry_all or _LOGIN_ONLY_ON_AUTH_ERROR
+        if auth_errors_only and not _is_auth_error(exc):
+            raise
+        new_auth = await coros_api.try_auto_login(auth)
         if new_auth is None:
             raise
         return await fn(new_auth, *args, **kwargs)
@@ -459,7 +474,9 @@ async def check_coros_auth(verify_with_server: bool = False) -> dict:
     remaining_hours = round(remaining_ms / 3_600_000, 1)
 
     has_mobile = bool(auth.mobile_access_token)
-    if has_mobile:
+    if coros_api.mobile_disabled():
+        mobile_status = "disabled (COROS_SKIP_MOBILE=1)"
+    elif has_mobile:
         mobile_status = "present (refresh via stored payload)"
     elif auth.mobile_login_payload:
         mobile_status = "expired (can auto-refresh)"
@@ -607,6 +624,9 @@ async def get_sleep_data(weeks: _Weeks = 4) -> dict:
       - max_hr: maximum heart rate during sleep
       - quality_score: sleep quality score (null if not computed)
     """
+    if coros_api.mobile_disabled():
+        return {"error": str(coros_api.MobileDisabledError()), "records": []}
+
     auth = await _get_auth()
     if auth is None:
         return {"error": _NOT_AUTHENTICATED, "records": []}
@@ -1690,8 +1710,38 @@ async def get_cache_status() -> dict:
 # Entry point
 # ---------------------------------------------------------------------------
 
+@mcp.custom_route("/healthz", methods=["GET"])
+@mcp.custom_route("/health", methods=["GET"])  # Cloud Run reserves paths ending in "z" on its public URL
+async def _healthz(request: Request) -> Response:
+    return PlainTextResponse("ok")
+
+
 def main():
     mcp.run()
+
+
+def main_http():
+    """Serve over streamable HTTP (stateless) behind a shared-secret check.
+
+    The secret (MCP_AUTH_TOKEN) is accepted as ``Authorization: Bearer <token>``
+    or as a path prefix (``/<token>/mcp``) for clients that cannot set headers.
+    """
+    token = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+    if not token:
+        raise SystemExit("MCP_AUTH_TOKEN must be set for serve-http — refusing to start an unauthenticated server.")
+    if len(token) < 32:
+        print("Warning: MCP_AUTH_TOKEN is shorter than 32 characters; use e.g. `openssl rand -hex 32`.",
+              file=sys.stderr)
+    mcp.run(
+        transport="http",
+        host="0.0.0.0",  # container entrypoint: listen on all interfaces
+        port=int(os.environ.get("PORT", "8080")),
+        stateless_http=True,
+        middleware=[Middleware(SharedSecretMiddleware, token=token, public_paths=PUBLIC_PATHS)],
+        # The access log would record the path secret on every request.
+        uvicorn_config={"access_log": False},
+        show_banner=False,
+    )
 
 
 if __name__ == "__main__":

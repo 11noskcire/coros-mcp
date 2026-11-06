@@ -223,12 +223,20 @@ def cmd_serve() -> int:
     return 0
 
 
+def cmd_serve_http() -> int:
+    """Start the MCP server over streamable HTTP (stateless; requires MCP_AUTH_TOKEN)."""
+    from coros_mcp import server
+    server.main_http()
+    return 0
+
+
 def cmd_help() -> int:
     print(
         """Coros MCP Server — CLI
 
 Usage:
   coros-mcp serve                   Start the MCP server (used by Claude Code / OpenClaw)
+  coros-mcp serve-http              Start the MCP server over HTTP on $PORT (needs MCP_AUTH_TOKEN)
   coros-mcp auth                    Authenticate with your Coros account (web + mobile)
   coros-mcp auth-web                Authenticate web API only (no sleep data)
   coros-mcp auth-mobile             Authenticate mobile API only (sleep data)
@@ -249,6 +257,7 @@ def main() -> None:
     command = sys.argv[1] if len(sys.argv) > 1 else "help"
     commands = {
         "serve": cmd_serve,
+        "serve-http": cmd_serve_http,
         "auth": cmd_auth,
         "auth-web": cmd_auth_web,
         "auth-mobile": cmd_auth_mobile,

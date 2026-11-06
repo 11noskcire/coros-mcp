@@ -36,6 +36,7 @@ coros-mcp auth-status    # Check token status
 coros-mcp auth-clear     # Remove stored tokens
 coros-mcp sync [--from YYYYMMDD] [--to YYYYMMDD]  # Backfill data to local cache
 coros-mcp cache-status   # Show local cache coverage
+coros-mcp serve-http     # Streamable HTTP (stateless) on $PORT; requires MCP_AUTH_TOKEN
 ```
 
 ## Architecture
@@ -67,6 +68,12 @@ All Coros API responses return `result: "0000"` on success. Any other value indi
 
 ### Toolset Gating (agent hardening)
 `COROS_MCP_TOOLSET=readonly` registers only the 12 read tools (hides write tools, raw escape hatches, and auth tools); `COROS_MCP_HIDE_AUTH_TOOLS=1` hides just the `authenticate_*` tools. Both are evaluated at import time in `server.py` via the `_tool()` registration wrapper; excluded functions remain plain callables (tests import them directly). `get_help` filters its listing against the registered set. Date/range parameters are schema-validated (`_Day` pattern, `_Weeks` bounds) at the MCP layer.
+
+### Stateless / Cloud Run mode (all opt-in via env; see `docs/cloud-run.md`)
+- `COROS_TOKEN_BACKEND=firestore`: `auth/storage.py` delegates to `auth/firestore_store.py` (doc `<COROS_FIRESTORE_COLLECTION|coros-mcp>/auth`, needs the `cloud` extra). Backend errors raise instead of reading as "no token" — a false "no token" would trigger a login that kills the valid token. Also makes `_run_with_auth` re-login only on auth errors.
+- Every login invalidates the previous token: `try_auto_login(stale)` serializes on `_login_lock` and reuses a token another request just minted.
+- `COROS_SKIP_MOBILE=1`: never mobile-login or replay the mobile payload (it signs the user out of the phone app); sleep tools return `MobileDisabledError`'s message.
+- `serve-http` (`server.main_http`): `coros_mcp/http_auth.py` checks `MCP_AUTH_TOKEN` as Bearer header or `/<token>/…` path prefix (moved into ASGI `root_path`); `/healthz` and `/health` are public. `COROS_CACHE_DB` overrides the SQLite path.
 
 ### Region Handling
 Regions (`eu`, `us`) map to different base URLs for both APIs. EU tokens only work on EU endpoints — mixing regions causes auth failures. Region is not geography: login can succeed against the wrong region and still 1019 on every call after it (confirmed live — a German account needed `us`), so rule the region out first when auth breaks with a valid-looking token.

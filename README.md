@@ -179,6 +179,16 @@ All tools additionally carry MCP `readOnlyHint` / `destructiveHint`
 annotations, so agent harnesses that honor them can require confirmation
 for write actions.
 
+### Remote deployment (Cloud Run)
+
+`coros-mcp serve-http` serves the same tools over streamable HTTP (stateless,
+port `$PORT`, default 8080), protected by a shared secret in `MCP_AUTH_TOKEN`.
+Together with `COROS_TOKEN_BACKEND=firestore` (token kept in Firestore;
+`pip install ".[cloud]"`) and `COROS_SKIP_MOBILE=1` (never log in to the
+mobile API, so your phone app stays signed in; no sleep data), it runs
+on Cloud Run with scale-to-zero. See [docs/cloud-run.md](docs/cloud-run.md)
+for the Dockerfile-based deployment and the Claude connector setup.
+
 ---
 
 ## Tool Reference
@@ -552,7 +562,9 @@ coros-mcp/
 │   └── cache/         # SQLite cache layer (store, sync, utils)
 ├── tests/             # pytest test suite
 ├── pyproject.toml     # Project metadata & dependencies
+├── Dockerfile         # Container for `coros-mcp serve-http` (Cloud Run)
 └── docs/
+    ├── cloud-run.md     # Cloud Run deployment guide
     └── mobile-token.md  # Mobile API token background (legacy reference)
 ```
 

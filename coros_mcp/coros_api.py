@@ -79,6 +79,10 @@ MOBILE_BASE_URLS = {
 
 TOKEN_TTL_MS = 24 * 60 * 60 * 1000  # 24 hours in milliseconds
 
+# Every login invalidates the previously issued token, so concurrent requests
+# must not each trigger one — try_auto_login() serializes on this lock.
+_login_lock = asyncio.Lock()
+
 
 class CorosAPIError(ValueError):
     """Coros API returned a non-success result code.
@@ -90,6 +94,22 @@ class CorosAPIError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+class MobileDisabledError(ValueError):
+    """Mobile API use is disabled via COROS_SKIP_MOBILE (web-only mode)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Sleep data needs the COROS mobile API, which is disabled on this server "
+            "(COROS_SKIP_MOBILE=1) because a mobile login signs you out of the COROS "
+            "phone app. HRV and resting HR are available via get_daily_metrics."
+        )
+
+
+def mobile_disabled() -> bool:
+    """True when COROS_SKIP_MOBILE is set: never log in to (or replay) the mobile API."""
+    return os.environ.get("COROS_SKIP_MOBILE", "").strip().lower() in ("1", "true", "yes")
 
 
 # Appended to 1019 ("access token invalid") errors: region is not geography,
@@ -269,7 +289,7 @@ async def login(email: str, password: str, region: str = "eu", *, skip_mobile: b
     # Uses AES-encrypted credentials (key reverse-engineered from libencrypt-lib.so)
     mobile_token = None
     mobile_payload = None
-    if not skip_mobile:
+    if not skip_mobile and not mobile_disabled():
         try:
             mobile_token, mobile_payload = await _mobile_login(email, password, region)
         except Exception:
@@ -386,22 +406,31 @@ def get_env_credentials() -> tuple[str, str, str] | None:
     return None
 
 
-async def try_auto_login() -> StoredAuth | None:
+async def try_auto_login(stale: StoredAuth | None = None) -> StoredAuth | None:
     """Attempt login using COROS_EMAIL/PASSWORD env vars. Returns None on failure.
 
     Always skips mobile login — the mobile token is obtained lazily on the first
     call to fetch_sleep(), so the Coros mobile app session is never disrupted by
     routine web-token refreshes.
+
+    stale: the auth that just failed, if any. Logins are serialized on
+    _login_lock; after acquiring it, a valid stored token that differs from
+    ``stale`` means another request already re-logged in, so it is reused
+    instead of minting (and thereby invalidating) yet another token.
     """
     creds = get_env_credentials()
     if creds is None:
         return None
     email, password, region = creds
-    try:
-        return await login(email, password, region)  # skip_mobile=True by default
-    except Exception:
-        logger.debug("Auto-login from env credentials failed", exc_info=True)
-        return None
+    async with _login_lock:
+        current = get_stored_auth()
+        if current is not None and (stale is None or current.access_token != stale.access_token):
+            return current
+        try:
+            return await login(email, password, region)  # skip_mobile=True by default
+        except Exception:
+            logger.debug("Auto-login from env credentials failed", exc_info=True)
+            return None
 
 
 # ---------------------------------------------------------------------------
@@ -1999,7 +2028,7 @@ async def _refresh_mobile_token(auth: StoredAuth) -> bool:
 
     Returns True and updates auth.mobile_access_token in-place on success.
     """
-    if not auth.mobile_login_payload:
+    if mobile_disabled() or not auth.mobile_login_payload:
         return False
 
     mobile_base = MOBILE_BASE_URLS.get(auth.region, MOBILE_BASE_URLS["eu"])
@@ -2048,6 +2077,8 @@ async def _ensure_mobile_token(auth: StoredAuth) -> bool:
     """
     if auth.mobile_access_token:
         return True
+    if mobile_disabled():
+        return False
 
     # Try refreshing via the stored encrypted payload (avoids re-entering creds)
     if auth.mobile_login_payload and await _refresh_mobile_token(auth):
@@ -2083,6 +2114,8 @@ async def fetch_sleep(auth: StoredAuth, start_day: str, end_day: str) -> list[Sl
 
     start_day / end_day: YYYYMMDD strings.
     """
+    if mobile_disabled():
+        raise MobileDisabledError()
     if not await _ensure_mobile_token(auth):
         raise ValueError(
             "No mobile API token available. Set COROS_EMAIL and COROS_PASSWORD in .env "

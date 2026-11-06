@@ -1,7 +1,12 @@
-"""Unified credential storage: env var → keyring → encrypted file."""
+"""Unified credential storage: env var → keyring → encrypted file.
+
+COROS_TOKEN_BACKEND=firestore replaces keyring + encrypted file with a single
+Firestore document (stateless deployments such as Cloud Run).
+"""
 
 import os
 
+from coros_mcp.auth import firestore_store
 from coros_mcp.auth.encrypted_store import (
     clear_credential_encrypted,
     get_credential_encrypted,
@@ -13,6 +18,11 @@ from coros_mcp.auth.keyring_store import get_credential as _keyring_get
 from coros_mcp.auth.keyring_store import store_credential as _keyring_store
 
 ENV_VAR = "COROS_ACCESS_TOKEN"
+BACKEND_ENV_VAR = "COROS_TOKEN_BACKEND"
+
+
+def _firestore_enabled() -> bool:
+    return os.environ.get(BACKEND_ENV_VAR, "").strip().lower() == "firestore"
 
 
 def store_token(token: str) -> CredentialResult:
@@ -21,6 +31,8 @@ def store_token(token: str) -> CredentialResult:
     Always writes the encrypted file (reliable fallback), also writes
     to keyring if available.
     """
+    if _firestore_enabled():
+        return firestore_store.store_credential_firestore(token)
     result = store_credential_encrypted(token)
     if is_keyring_available():
         kr = _keyring_store(token)
@@ -44,6 +56,9 @@ def get_token() -> CredentialResult:
     if env:
         return CredentialResult(success=True, message="Token from env var", token=env)
 
+    if _firestore_enabled():
+        return firestore_store.get_credential_firestore()
+
     result = get_credential_encrypted()
     if result.success:
         return result
@@ -56,6 +71,8 @@ def get_token() -> CredentialResult:
 
 def clear_token() -> CredentialResult:
     """Remove stored token from all backends."""
+    if _firestore_enabled():
+        return firestore_store.clear_credential_firestore()
     results = []
     if is_keyring_available():
         results.append(_keyring_clear())

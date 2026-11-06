@@ -1,11 +1,12 @@
 """SQLite-backed local store for Coros data.
 
-DB location: ~/.config/coros-mcp/cache.db
+DB location: ~/.config/coros-mcp/cache.db (override with COROS_CACHE_DB)
 Three data tables (daily_records, sleep_records, activities) plus a
 sync_meta table that tracks the latest synced date per data type.
 """
 
 import logging
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -17,7 +18,7 @@ from coros_mcp.models import ActivitySummary, DailyRecord, SleepRecord
 
 logger = logging.getLogger(__name__)
 
-CACHE_DB = Path.home() / ".config" / "coros-mcp" / "cache.db"
+CACHE_DB = Path(os.environ.get("COROS_CACHE_DB") or Path.home() / ".config" / "coros-mcp" / "cache.db")
 
 _CREATE_SQL = """
     CREATE TABLE IF NOT EXISTS daily_records (

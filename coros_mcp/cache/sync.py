@@ -309,15 +309,16 @@ async def sync_all(
             stats["errors"].append(f"daily {cursor}–{chunk_end}: {exc}")
         await asyncio.sleep(0.5)
 
-        # --- sleep records ---
-        try:
-            sleeps = await coros_api.fetch_sleep(auth, cursor, chunk_end)
-            if sleeps:
-                upsert_sleep_records(sleeps)
-                stats["sleep"] += len(sleeps)
-        except Exception as exc:
-            stats["errors"].append(f"sleep {cursor}–{chunk_end}: {exc}")
-        await asyncio.sleep(0.5)
+        # --- sleep records (skipped in web-only mode: COROS_SKIP_MOBILE) ---
+        if not coros_api.mobile_disabled():
+            try:
+                sleeps = await coros_api.fetch_sleep(auth, cursor, chunk_end)
+                if sleeps:
+                    upsert_sleep_records(sleeps)
+                    stats["sleep"] += len(sleeps)
+            except Exception as exc:
+                stats["errors"].append(f"sleep {cursor}–{chunk_end}: {exc}")
+            await asyncio.sleep(0.5)
 
         # --- activities (all pages) ---
         try:
