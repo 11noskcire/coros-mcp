@@ -20,6 +20,13 @@ How it works:
 - **Cache.** The SQLite cache sits in `/tmp` and is lost when the instance
   stops. The next request simply refetches from COROS.
 
+**Prerequisite: turn off two-factor authentication on your COROS account.**
+The API login can't complete a 2FA step. COROS then answers with success but
+no token, and every tool reports "Not authenticated". The logs show
+`Coros login returned no accessToken`. With 2FA off, the password is the
+account's only protection, so use a strong one you don't use anywhere else.
+It's stored only in Secret Manager.
+
 Nothing below runs automatically. The commands use bash. Do the manual deploy
 first (steps 0–8). [Deploy from GitHub](#deploy-from-github) then ships code
 on every `deploy-v*` tag.

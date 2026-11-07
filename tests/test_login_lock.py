@@ -166,3 +166,4 @@ async def test_login_without_token_reports_response_shape(monkeypatch):
     assert "['email', 'regionId']" in msg
     assert "regionId=3" in msg
     assert "secret@example.com" not in msg
+    assert "two-factor" in msg

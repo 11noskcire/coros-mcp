@@ -71,6 +71,7 @@ All Coros API responses return `result: "0000"` on success. Any other value indi
 
 ### Stateless / Cloud Run mode (all opt-in via env; see `docs/cloud-run.md`)
 - `COROS_TOKEN_BACKEND=firestore`: `auth/storage.py` delegates to `auth/firestore_store.py` (doc `<COROS_FIRESTORE_COLLECTION|coros-mcp>/auth`, needs the `cloud` extra). Backend errors raise instead of reading as "no token" — a false "no token" would trigger a login that kills the valid token. Also makes `_run_with_auth` re-login only on auth errors.
+- COROS accounts with two-factor authentication enabled cannot log in via the API: `/account/login` returns result `0000` without `accessToken` (confirmed live). `login()` raises `CorosAPIError("no_token", …)` naming 2FA; the fix is disabling 2FA on the account.
 - Every login invalidates the previous token: `try_auto_login(stale)` serializes on `_login_lock` and reuses a token another request just minted.
 - `COROS_SKIP_MOBILE=1`: never mobile-login or replay the mobile payload (it signs the user out of the phone app); sleep tools return `MobileDisabledError`'s message.
 - `serve-http` (`server.main_http`): `coros_mcp/http_auth.py` checks `MCP_AUTH_TOKEN` as Bearer header or `/<token>/…` path prefix (moved into ASGI `root_path`); `/healthz` and `/health` are public. `COROS_CACHE_DB` overrides the SQLite path.

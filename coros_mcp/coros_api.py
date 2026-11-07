@@ -288,11 +288,14 @@ async def login(email: str, password: str, region: str = "eu", *, skip_mobile: b
     if not data.get("accessToken") or not data.get("userId"):
         # Success code but no token: report the response shape. Field names only —
         # values may be personal — plus regionId, which hints at a region mismatch.
+        # Confirmed cause: two-factor authentication on the account (the API login
+        # cannot complete the second step).
         region_hint = f", regionId={data['regionId']!r}" if "regionId" in data else ""
         raise CorosAPIError(
             "no_token",
             f"Coros login returned no accessToken/userId (message={body.get('message')!r}, "
-            f"data fields={sorted(data)}{region_hint})",
+            f"data fields={sorted(data)}{region_hint}). If two-factor authentication is "
+            "enabled on the COROS account, disable it: the API login cannot complete 2FA.",
         )
 
     # Mobile API token (apieu.coros.com) — needed for sleep data
